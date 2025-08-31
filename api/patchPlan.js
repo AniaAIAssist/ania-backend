@@ -109,6 +109,83 @@ module.exports = async (req, res) => {
       });
     }
 
+    // 1) GET the active plan by (user, type) — no plan_id needed
+if (op === "get_active_plan") {
+  const { currentUserId, plan_type } = payload || {};
+  must(currentUserId, "Missing currentUserId");
+  must(plan_type, "Missing plan_type");
+
+  const { data: plan, error } = await supabase
+    .from("user_active_plan")
+    .select("*")
+    .eq("owner_id", currentUserId)
+    .eq("plan_type", plan_type)
+    .maybeSingle(); // returns null if none
+  if (error) throw error;
+  if (!plan) return json(404, { error: "NOT_FOUND" });
+
+  return json(200, {
+    plan_id: plan.plan_id,
+    plan_type: plan.plan_type,
+    version: plan.version,
+    summary: plan.summary,
+    data: plan.data,
+    updated_at: plan.updated_at
+  });
+}
+
+// 2) PATCH the active plan by (user, type) — no plan_id needed
+if (op === "patch_active_plan") {
+  const { currentUserId, plan_type, expected_version, new_state_json } = payload || {};
+  must(currentUserId, "Missing currentUserId");
+  must(plan_type, "Missing plan_type");
+  must(expected_version != null, "Missing expected_version");
+  must(new_state_json && typeof new_state_json === "object", "Missing new_state_json");
+
+  const { data: current, error: e1 } = await supabase
+    .from("user_active_plan")
+    .select("*")
+    .eq("owner_id", currentUserId)
+    .eq("plan_type", plan_type)
+    .single(); // must exist
+  if (e1) throw e1;
+
+  if (current.version !== expected_version) {
+    return json(409, { error: "VERSION_CONFLICT", current_version: current.version });
+  }
+
+  const nextVersion = current.version + 1;
+
+  const { data: updated, error: e2 } = await supabase
+    .from("user_active_plan")
+    .update({
+      version: nextVersion,
+      summary: (new_state_json.summary || "").slice(0, 800),
+      data: new_state_json.data || current.data,
+      updated_at: new Date().toISOString()
+    })
+    .eq("plan_id", current.plan_id)
+    .select()
+    .single();
+  if (e2) throw e2;
+
+  await supabase.from("plan_history").insert({
+    plan_id: current.plan_id,
+    version: nextVersion,
+    summary: updated.summary,
+    data: updated.data
+  });
+
+  return json(200, {
+    plan_id: updated.plan_id,
+    plan_type: updated.plan_type,
+    version: updated.version,
+    summary: updated.summary,
+    data: updated.data,
+    updated_at: updated.updated_at
+  });
+}
+
     if (op === "patch_plan") {
       const { plan_id, expected_version, new_state_json, currentUserId } = payload;
       must(plan_id != null, "Missing plan_id");
