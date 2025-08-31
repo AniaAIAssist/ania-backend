@@ -50,43 +50,43 @@ module.exports = async (req, res) => {
     // All ops require your app to send currentUserId
     must(payload && payload.currentUserId, "Missing currentUserId");
 
-    if (op === "start_plan") {
-      const { currentUserId, plan_type, state_json } = payload;
-      must(plan_type, "Missing plan_type");
-      must(state_json && typeof state_json === "object", "Missing state_json");
+   if (op === "start_plan") {
+  const { currentUserId, plan_type, state_json } = payload;
+  must(plan_type, "Missing plan_type");
+  must(state_json && typeof state_json === "object", "Missing state_json");
 
-      const insert = {
-        owner_id: currentUserId,
-        plan_type,
-        version: state_json.version ?? 1,
-        summary: state_json.summary ?? "",
-        data: state_json.data ?? {},
-      };
+  const up = {
+    owner_id: currentUserId,
+    plan_type,
+    version: state_json.version ?? 1,
+    summary: state_json.summary ?? "",
+    data: state_json.data ?? {},
+    updated_at: new Date().toISOString()
+  };
 
-      const { data: plan, error } = await supabase
-        .from("user_active_plan")
-        .insert(insert)
-        .select()
-        .single();
-      if (error) throw error;
+  const { data: plan, error } = await supabase
+    .from("user_active_plan")
+    .upsert(up, { onConflict: "owner_id,plan_type" })
+    .select()
+    .single();
+  if (error) throw error;
 
-      await supabase.from("plan_history").insert({
-        plan_id: plan.plan_id,
-        version: plan.version,
-        summary: plan.summary,
-        data: plan.data
-      });
+  await supabase.from("plan_history").insert({
+    plan_id: plan.plan_id,
+    version: plan.version,
+    summary: plan.summary,
+    data: plan.data
+  });
 
-      return json(200, {
-        plan_id: plan.plan_id,
-        plan_type: plan.plan_type,
-        version: plan.version,
-        summary: plan.summary,
-        data: plan.data,
-        updated_at: plan.updated_at
-      });
-    }
-
+  return json(200, {
+    plan_id: plan.plan_id,
+    plan_type: plan.plan_type,
+    version: plan.version,
+    summary: plan.summary,
+    data: plan.data,
+    updated_at: plan.updated_at
+  });
+}
     if (op === "get_plan") {
       const { plan_id, currentUserId } = payload;
       must(plan_id, "Missing plan_id");
